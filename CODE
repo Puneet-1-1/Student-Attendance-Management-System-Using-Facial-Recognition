@@ -1,71 +1,87 @@
 import tkinter as tk
-from tkinter import *
+from tkinter import messagebox, Label, Button, Entry
+from PIL import Image, ImageTk
 import cv2
 import csv
 import os
 import numpy as np
-from PIL import Image, ImageTk
 import pandas as pd
 import datetime
 import time
-import pymysql.connections 
+import pymysql.connections
+import subprocess
 
-# Global notification label for main window, initialized later
-Notification = None 
+# --- Global Variables ---
+# Global notification label for the main window, initialized later
+Notification = None
+# Global database connection and cursor (consider a more robust connection management)
+connection = None
+cursor = None
 
-#####Window is our Main frame of system
-window = tk.Tk() 
+
+# --- Main Application Window ---
+window = tk.Tk()
 window.title("STUDENT ATTENDANCE MANAGEMENT SYSTEM")
-window.geometry('1280x720') 
+window.geometry('1280x720')
 window.configure(background='snow')
+window.iconbitmap('AMS.ico')
 
-####GUI for manually fill attendance
+
+# --- Functions for Manual Attendance ---
+
 def manually_fill():
-    global sb 
-    sb = tk.Tk()
-    sb.iconbitmap('AMS.ico') 
-    sb.title("Enter subject name...")
+    """
+    Creates a window for manually filling attendance.
+    """
+    global sb
+    sb = tk.Toplevel(window)
+    sb.iconbitmap('AMS.ico')
+    sb.title("Enter Subject Name")
     sb.geometry('580x320')
     sb.configure(background='snow')
 
-    def err_screen_for_subject(): 
-        def ec_delete():
-            ec.destroy()
-        global ec
-        ec = tk.Tk()
-        ec.geometry('300x100')
-        ec.iconbitmap('AMS.ico') 
-        ec.title('Warning!!') 
-        ec.configure(background='snow')
-        Label(ec, text='Please enter your subject name!!!', fg='red', bg='white', font=('times', 16, 'bold')).pack()
-        Button(ec, text='OK', command=ec_delete, fg="black", bg="lawn green", width=9, height=1,
-               activebackground="Red", font=('times', 15, 'bold')).place(x=90, y=50)
+    def fill_attendance_for_subject():
+        """
+        Validates the subject name and opens the manual attendance filling window.
+        """
+        subb = SUB_ENTRY.get()
+        if not subb:
+            messagebox.showwarning("Warning", "Please enter a subject name.")
+            return
 
-    def fill_attendance(): 
-        ts = time.time() 
-        Date = datetime.datetime.fromtimestamp(ts).strftime('%Y_%m_%d') 
-        timeStamp = datetime.datetime.fromtimestamp(ts).strftime('%H:%M:%S') 
-        
-        Hour, Minute, Second = timeStamp.split(":")
-        
-        date_for_DB = datetime.datetime.fromtimestamp(ts).strftime('%Y_%m_%d') 
-        global subb
-        subb = SUB_ENTRY.get() 
-        DB_table_name = str(subb + "_" + Date + "_Time_" + Hour + "_" + Minute + "_" + Second)
-        
-        try:
-            global cursor 
-            connection = pymysql.connect(host='localhost', user='root', password='',
-                                         db='manually_fill_attendance')
-            cursor = connection.cursor()
-        except Exception as e:
-            print(e)
-            if Notification:
-                Notification.configure(text=f"DB Connection Error: {e}", bg="Red", fg="white", width=50)
-                Notification.place(x=250, y=400)
+        sb.destroy()
+        create_manual_attendance_window(subb)
+
+    SUB = Label(sb, text="Enter Subject", width=15, height=2, fg="white", bg="blue2", font=('times', 15, 'bold'))
+    SUB.place(x=30, y=100)
+
+    global SUB_ENTRY
+    SUB_ENTRY = Entry(sb, width=20, bg="yellow", fg="red", font=('times', 23, 'bold'))
+    SUB_ENTRY.place(x=250, y=105)
+
+    fill_manual_attendance = Button(sb, text="Fill Attendance", command=fill_attendance_for_subject, fg="white",
+                                       bg="deep pink", width=20, height=2, activebackground="Red",
+                                       font=('times', 15, 'bold'))
+    fill_manual_attendance.place(x=250, y=160)
+
+
+def create_manual_attendance_window(subject_name):
+    """
+    Creates the window for manually entering student attendance for a specific subject.
+    """
+    ts = time.time()
+    date_for_db = datetime.datetime.fromtimestamp(ts).strftime('%Y_%m_%d')
+    timestamp = datetime.datetime.fromtimestamp(ts).strftime('%H:%M:%S')
+    hour, minute, second = timestamp.split(":")
+    db_table_name = f"{subject_name}_{date_for_db}_Time_{hour}_{minute}_{second}"
+
+    try:
+        global connection, cursor
+        connection = pymysql.connect(host='localhost', user='root', password='', db='manually_fill_attendance')
+        cursor = connection.cursor()
 
         sql = f"""
-        CREATE TABLE {DB_table_name} (
+        CREATE TABLE IF NOT EXISTS {db_table_name} (
             ID INT NOT NULL AUTO_INCREMENT,
             ENROLLMENT VARCHAR(100) NOT NULL,
             NAME VARCHAR(50) NOT NULL,
@@ -74,726 +90,511 @@ def manually_fill():
             PRIMARY KEY (ID)
         );
         """
-        try: 
-            cursor.execute(sql) 
-            connection.commit() 
-        except Exception as ex:
-            print(ex) 
-            if Notification:
-                Notification.configure(text=f"DB Table Creation Error: {ex}", bg="Red", fg="white", width=50)
-                Notification.place(x=250, y=400)
+        cursor.execute(sql)
+        connection.commit()
 
-    if subb == '':
-        err_screen_for_subject()
-    else:
-        sb.destroy()
-        MFW = tk.Tk()
-        MFW.iconbitmap('AMS.ico') 
-        MFW.title("Manually attendance of " + str(subb))
-        MFW.geometry('880x470')
-        MFW.configure(background='snow')
+    except pymysql.Error as e:
+        messagebox.showerror("Database Error", f"Failed to connect or create table: {e}")
+        return
+    finally:
+        if connection:
+            connection.close()
 
-        def del_errsc2(): 
-            errsc2.destroy()
+    mfw = tk.Toplevel(window)
+    mfw.iconbitmap('AMS.ico')
+    mfw.title(f"Manual Attendance for {subject_name}")
+    mfw.geometry('880x470')
+    mfw.configure(background='snow')
 
-        def err_screen1(): 
-            global errsc2
-            errsc2 = tk.Tk()
-            errsc2.geometry('330x100')
-            errsc2.iconbitmap('AMS.ico') 
-            errsc2.title('Warning!!')
-            errsc2.configure(background='snow')
-            Label(errsc2, text='Please enter Student & Enrollment!!!', fg='red', bg='white',
-                  font=('times', 16, 'bold')).pack()
-            Button(errsc2, text='OK', command=del_errsc2, fg="black", bg="lawn green", width=9, height=1,
-                   activebackground="Red", font=('times', 15, 'bold')).place(x=90, y=50)
+    def enter_data_db():
+        """
+        Enters the student's attendance data into the database.
+        """
+        enrollment = enr_entry.get()
+        student_name = student_entry.get()
 
-        def testVal(inStr, acttyp): 
-            if acttyp == '1': 
-                if not inStr.isdigit():
-                    return False
-                return True
-            return True 
+        if not enrollment or not student_name:
+            messagebox.showwarning("Warning", "Please enter both Enrollment and Student Name.")
+            return
 
-        ENR = tk.Label(MFW, text="Enter Enrollment", width=15, height=2, fg="white", bg="blue2",
-                       font=('times', 15, 'bold'))
-        ENR.place(x=30, y=100)
-        
-        STU_NAME = tk.Label(MFW, text="Enter Student name", width=15, height=2, fg="white", bg="blue2",
-                            font=('times', 15, 'bold'))
-        STU_NAME.place(x=30, y=200)
+        current_ts = time.time()
+        current_date_str = datetime.datetime.fromtimestamp(current_ts).strftime('%Y-%m-%d')
+        current_time_str = datetime.datetime.fromtimestamp(current_ts).strftime('%H:%M:%S')
 
-        global ENR_ENTRY 
-        ENR_ENTRY = tk.Entry(MFW, width=20, validate='key', bg="yellow", fg="red", font=('times', 23, 'bold'))
-        ENR_ENTRY['validatecommand'] = (ENR_ENTRY.register(testVal), '%P', '%d')
-        ENR_ENTRY.place(x=290, y=105)
-
-        def remove_enr():
-            ENR_ENTRY.delete(first=0, last=tk.END) 
-
-        STUDENT_ENTRY = tk.Entry(MFW, width=20, bg="yellow", fg="red", font=('times', 23, 'bold'))
-        STUDENT_ENTRY.place(x=290, y=205)
-
-        def remove_student():
-            STUDENT_ENTRY.delete(first=0, last=tk.END)
-
-        def enter_data_DB():
-            ENROLLMENT = ENR_ENTRY.get()
-            STUDENT = STUDENT_ENTRY.get()
-            
-            current_ts = time.time() 
-
-            if ENROLLMENT == '':
-                err_screen1()
-            elif STUDENT == '':
-                err_screen1()
-            else:
-                current_time_str = datetime.datetime.fromtimestamp(current_ts).strftime('%H:%M:%S')
-                Hour, Minute, Second = current_time_str.split(":") 
-                
-                current_date_str = datetime.datetime.fromtimestamp(current_ts).strftime('%Y-%m-%d')
-
-                Insert_data = f"INSERT INTO {DB_table_name} (ID, ENROLLMENT, NAME, DATE, TIME) VALUES (0, %s, %s, %s, %s)"
-                VALUES = (str(ENROLLMENT), str(STUDENT), str(current_date_str), str(current_time_str))
-                try:
-                    cursor.execute(Insert_data, VALUES)
-                    connection.commit() 
-                except Exception as e:
-                    print(e)
-                    if Notification:
-                        Notification.configure(text=f"DB Insert Error: {e}", bg="Red", fg="white", width=50)
-                        Notification.place(x=250, y=400)
-
-                ENR_ENTRY.delete(first=0, last=tk.END)
-                STUDENT_ENTRY.delete(first=0, last=tk.END)
-
-        def create_csv():
-            try:
-                cursor.execute(f"select * from {DB_table_name};")
-                
-                csv_name = f'Attendance/Manually Attendance/{DB_table_name}.csv'
-                with open(csv_name, "w", newline="") as csv_file: 
-                    csv_writer = csv.writer(csv_file)
-                    headers = [i[0] for i in cursor.description]
-                    csv_writer.writerow(headers) 
-                    csv_writer.writerows(cursor) 
-
-                O = "CSV created Successfully"
-                if Notification:
-                    Notification.configure(text=O, bg="Green", fg="white", width=33, font=('times', 19, 'bold'))
-                    Notification.place(x=180, y=380)
-
-                root_csv_display = tk.Tk()
-                root_csv_display.title("Attendance of " + subb)
-                root_csv_display.configure(background='snow')
-
-                with open(csv_name, newline="") as file:
-                    reader = csv.reader(file)
-                    r = 0 
-                    for col in reader:
-                        c = 0
-                        for row in col:
-                            label = tkinter.Label(root_csv_display, width=13, height=1, fg="black", font=('times', 13, 'bold'),
-                                                  bg="lawn green", text=row, relief=tkinter.RIDGE)
-                            label.grid(row=r, column=c)
-                            c += 1
-                        r += 1
-                root_csv_display.mainloop()
-            except Exception as e:
-                print(f"Error creating CSV or displaying it: {e}")
-                if Notification:
-                    Notification.configure(text=f"CSV Error: {e}", bg="Red", fg="white", width=50)
-                    Notification.place(x=250, y=400)
-
-        Notifi = tk.Label(MFW, text="CSV created Successfully", bg="Green", fg="white", width=33,
-                          height=2, font=('times', 19, 'bold'))
-        Notifi.place(x=180, y=380) 
-
-        clear_enroll = tk.Button(MFW, text="Clear", command=remove_enr, fg="black", bg="deep pink",
-                                 width=10, height=1, activebackground="Red", font=('times', 15, 'bold'))
-        clear_enroll.place(x=690, y=100)
-        
-        clear_student = tk.Button(MFW, text="Clear", command=remove_student, fg="black", bg="deep pink", width=10,
-                                  height=1, activebackground="Red", font=('times', 15, 'bold'))
-        clear_student.place(x=690, y=200)
-        
-        DATA_SUB = tk.Button(MFW, text="Enter Data", command=enter_data_DB, fg="black", bg="lime green", width=20,
-                              height=2, activebackground="Red", font=('times', 15, 'bold'))
-        DATA_SUB.place(x=170, y=300)
-        
-        MAKE_CSV = tk.Button(MFW, text="Convert to CSV", command=create_csv, fg="black",
-                             bg="red", width=20, height=2, activebackground="Red", font=('times', 15, 'bold'))
-        MAKE_CSV.place(x=570, y=300)
-        
-
-        def attf():
-            import subprocess
-            try:
-                folder_path = os.path.join(os.getcwd(), "Attendance", "Manually Attendance")
-                subprocess.Popen(f'explorer /select,"{folder_path}"')
-            except Exception as e:
-                print(f"Error opening folder: {e}")
-                if Notification:
-                    Notification.configure(text=f"Folder Error: {e}", bg="Red", fg="white", width=50)
-                    Notification.place(x=250, y=400)
-
-        attf_button = tk.Button(MFW, text="Check Sheets", command=attf, fg="black", bg="lawn green", width=12,
-                                height=1, activebackground="Red", font=('times', 14, 'bold'))
-        attf_button.place(x=730, y=410)
-        MFW.mainloop()
-
-    SUB = tk.Label(sb, text="Enter Subject", width=15, height=2, fg="white", bg="blue2", font=('times', 15, 'bold'))
-    SUB.place(x=30, y=100)
-
-    global SUB_ENTRY
-    SUB_ENTRY = tk.Entry(sb, width=20, bg="yellow", fg="red", font=('times', 23, 'bold'))
-    SUB_ENTRY.place(x=250, y=105)
-
-    fill_manual_attendance = tk.Button(sb, text="Fill Attendance", command=fill_attendance, fg="white",
-                                       bg="deep pink", width=20, height=2, activebackground="Red",
-                                       font=('times', 15, 'bold'))
-    fill_manual_attendance.place(x=250, y=160)
-
-    sb.mainloop()
-
-def clear():
-    txt.delete(first=0, last=tk.END)
-
-def clear1():
-    txt2.delete(first=0, last=tk.END)
-
-def del_sc1():
-    sc1.destroy()
-
-def err_screen():
-    global sc1
-    sc1 = tk.Tk()
-    sc1.geometry('300x100')
-    sc1.iconbitmap('AMS.ico') 
-    sc1.title('Warning!!')
-    sc1.configure(background='snow')
-    Label(sc1, text='Enrollment & Name required!!!', fg='red', bg='white', font=('times', 16, 'bold')).pack()
-    Button(sc1, text='OK', command=del_sc1, fg="black", bg="lawn green", width=9, height=1,
-           activebackground="Red", font=('times', 15, 'bold')).place(x=90, y=50)
-
-def del_sc2():
-    sc2.destroy()
-
-def err_screen1_global(): # Renamed to avoid conflict with local err_screen1
-    global sc2
-    sc2 = tk.Tk()
-    sc2.geometry('300x100')
-    sc2.iconbitmap('AMS.ico') 
-    sc2.title('Warning!!')
-    sc2.configure(background='snow')
-    Label(sc2, text='Please enter your subject name!!!', fg='red', bg='white', font=('times', 16, 'bold')).pack()
-    Button(sc2, text='OK', command=del_sc2, fg="black", bg="lawn green", width=9, height=1,
-           activebackground="Red", font=('times', 15, 'bold')).place(x=90, y=50)
-
-def take_img():
-    l1 = txt.get()
-    l2 = txt2.get()
-    
-    global Notification 
-    if Notification is None: 
-        Notification = tk.Label(window, text="All things good", bg="Green", fg="white", width=50, height=3, font=('times', 17, 'bold'))
-        Notification.place(x=250, y=400) 
-
-    if l1 == '':
-        err_screen()
-    elif l2 == '':
-        err_screen()
-    else:
         try:
-            cam = cv2.VideoCapture(0)
-            detector = cv2.CascadeClassifier('haarcascade_frontalface_default.xml') 
-            Enrollment = txt.get()
-            Name = txt2.get()
-            sampleNum = 0
+            conn = pymysql.connect(host='localhost', user='root', password='', db='manually_fill_attendance')
+            curr = conn.cursor()
+            insert_data = f"INSERT INTO {db_table_name} (ENROLLMENT, NAME, DATE, TIME) VALUES (%s, %s, %s, %s)"
+            values = (enrollment, student_name, current_date_str, current_time_str)
+            curr.execute(insert_data, values)
+            conn.commit()
+            messagebox.showinfo("Success", "Attendance recorded successfully!")
+            enr_entry.delete(0, tk.END)
+            student_entry.delete(0, tk.END)
+        except pymysql.Error as e:
+            messagebox.showerror("Database Error", f"Failed to insert data: {e}")
+        finally:
+            if conn:
+                conn.close()
+
+    def create_csv():
+        """
+        Creates a CSV file from the attendance data in the database.
+        """
+        try:
+            conn = pymysql.connect(host='localhost', user='root', password='', db='manually_fill_attendance')
+            curr = conn.cursor()
+            curr.execute(f"SELECT * FROM {db_table_name};")
             
-            if not os.path.exists("TrainingImage"):
-                os.makedirs("TrainingImage")
-
-            while (True):
-                ret, img = cam.read()
-                if not ret: 
-                    print("Failed to grab frame.")
-                    break
-                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-                faces = detector.detectMultiScale(gray, 1.3, 5) 
-                for (x, y, w, h) in faces:
-                    cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 0), 2)
-                    sampleNum = sampleNum + 1
-                    
-                    img_path = os.path.join("TrainingImage", f"{Name}.{Enrollment}.{sampleNum}.jpg")
-                    cv2.imwrite(img_path, gray[y:y + h, x:x + w]) 
-                    cv2.imshow('Frame', img)
-
-                key = cv2.waitKey(100) & 0xFF 
-                if key == ord('q'): 
-                    break
-                elif sampleNum >= 70: 
-                    break
-
-            cam.release() 
-            cv2.destroyAllWindows()
+            # Create directories if they don't exist
+            attendance_dir = os.path.join(os.getcwd(), "Attendance", "Manually Attendance")
+            os.makedirs(attendance_dir, exist_ok=True)
             
-            ts = time.time()
-            Date = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d')
-            Time = datetime.datetime.fromtimestamp(ts).strftime('%H:%M:%S')
-            row = [Enrollment, Name, Date, Time]
-
-            if not os.path.exists("StudentDetails"):
-                os.makedirs("StudentDetails")
-
-            with open('StudentDetails/StudentDetails.csv', 'a+', newline='') as csvFile: 
-                writer = csv.writer(csvFile) 
-                writer.writerow(row)
-
-            res = "Images Saved for Enrollment : " + Enrollment + " Name : " + Name
-            Notification.configure(text=res, bg="SpringGreen3", width=50, font=('times', 18, 'bold'))
-            Notification.place(x=250, y=400)
+            csv_name = os.path.join(attendance_dir, f'{db_table_name}.csv')
+            with open(csv_name, "w", newline="") as csv_file:
+                csv_writer = csv.writer(csv_file)
+                headers = [i[0] for i in curr.description]
+                csv_writer.writerow(headers)
+                csv_writer.writerows(curr)
             
-        except FileExistsError as F: 
-            f = 'Student Data already exists' 
-            Notification.configure(text=f, bg="Red", width=21)
-            Notification.place(x=450, y=400)
-        except Exception as e: 
-            print(f"Error during image capture/save: {e}")
-            Notification.configure(text=f"Error: {e}", bg="Red", width=50)
-            Notification.place(x=250, y=400)
+            messagebox.showinfo("Success", "CSV file created successfully!")
+            display_csv(csv_name, f"Attendance of {subject_name}")
+
+        except pymysql.Error as e:
+            messagebox.showerror("Database Error", f"Failed to fetch data for CSV: {e}")
+        except IOError as e:
+            messagebox.showerror("File Error", f"Failed to write CSV file: {e}")
+        finally:
+            if conn:
+                conn.close()
+
+    enr_label = Label(mfw, text="Enter Enrollment", width=15, height=2, fg="white", bg="blue2",
+                      font=('times', 15, 'bold'))
+    enr_label.place(x=30, y=100)
+
+    stu_name_label = Label(mfw, text="Enter Student Name", width=15, height=2, fg="white", bg="blue2",
+                           font=('times', 15, 'bold'))
+    stu_name_label.place(x=30, y=200)
+
+    enr_entry = Entry(mfw, width=20, bg="yellow", fg="red", font=('times', 23, 'bold'))
+    enr_entry.place(x=290, y=105)
+
+    student_entry = Entry(mfw, width=20, bg="yellow", fg="red", font=('times', 23, 'bold'))
+    student_entry.place(x=290, y=205)
+
+    clear_enroll = Button(mfw, text="Clear", command=lambda: enr_entry.delete(0, tk.END), fg="black", bg="deep pink",
+                          width=10, height=1, activebackground="Red", font=('times', 15, 'bold'))
+    clear_enroll.place(x=690, y=100)
+
+    clear_student = Button(mfw, text="Clear", command=lambda: student_entry.delete(0, tk.END), fg="black", bg="deep pink",
+                           width=10, height=1, activebackground="Red", font=('times', 15, 'bold'))
+    clear_student.place(x=690, y=200)
+
+    data_sub = Button(mfw, text="Enter Data", command=enter_data_db, fg="black", bg="lime green", width=20,
+                      height=2, activebackground="Red", font=('times', 15, 'bold'))
+    data_sub.place(x=170, y=300)
+
+    make_csv = Button(mfw, text="Convert to CSV", command=create_csv, fg="black",
+                      bg="red", width=20, height=2, activebackground="Red", font=('times', 15, 'bold'))
+    make_csv.place(x=570, y=300)
+
+    def open_attendance_folder():
+        """
+        Opens the folder containing the manually created attendance sheets.
+        """
+        folder_path = os.path.join(os.getcwd(), "Attendance", "Manually Attendance")
+        try:
+            subprocess.Popen(f'explorer "{folder_path}"')
+        except FileNotFoundError:
+            messagebox.showerror("Error", "Could not open the attendance folder. It might not exist.")
+
+    attf_button = Button(mfw, text="Check Sheets", command=open_attendance_folder, fg="black", bg="lawn green", width=12,
+                         height=1, activebackground="Red", font=('times', 14, 'bold'))
+    attf_button.place(x=730, y=410)
+
+
+# --- Functions for Face Recognition Based Attendance ---
 
 def subjectchoose():
-    global Notification 
-    if Notification is None: 
-        Notification = tk.Label(window, text="All things good", bg="Green", fg="white", width=50, height=3, font=('times', 17, 'bold'))
-        Notification.place(x=250, y=400) 
+    """
+    Creates a window for choosing a subject to take attendance for.
+    """
+    windo = tk.Toplevel(window)
+    windo.iconbitmap('AMS.ico')
+    windo.title("Enter Subject Name")
+    windo.geometry('580x320')
+    windo.configure(background='snow')
 
-    def Fillattendances():
+    def fill_attendances():
+        """
+        Starts the face recognition process to fill attendance.
+        """
         sub = tx.get()
-        now = time.time()
-        future = now + 20 
-        
-        if sub == '':
-            err_screen1_global() # Call the global error screen
-            return 
-
-        recognizer = cv2.face.LBPHFaceRecognizer_create()
-        try:
-            recognizer.read("TrainingImageLabel/Trainner.yml") 
-        except Exception as e: 
-            e_msg = f'Model not found or error loading: {e}. Please train model.'
-            Notification.configure(text=e_msg, bg="red", fg="black", width=50, font=('times', 15, 'bold'))
-            Notification.place(x=20, y=250)
-            return 
-
-        harcascadePath = "haarcascade_frontalface_default.xml" 
-        faceCascade = cv2.CascadeClassifier(harcascadePath)
-        
-        try:
-            df = pd.read_csv("StudentDetails/StudentDetails.csv")
-        except FileNotFoundError:
-            Notification.configure(text="StudentDetails.csv not found. Please register students.", bg="red", fg="black", width=50)
-            Notification.place(x=20, y=250)
+        if not sub:
+            messagebox.showwarning("Warning", "Please enter a subject name.")
             return
-        except Exception as e:
-            Notification.configure(text=f"Error reading StudentDetails.csv: {e}", bg="red", fg="black", width=50)
-            Notification.place(x=20, y=250)
-            return
-
-        cam = cv2.VideoCapture(0)
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        col_names = ['Enrollment', 'Name', 'Date', 'Time']
-        attendance = pd.DataFrame(columns=col_names)
         
-        while True:
-            ret, im = cam.read()
-            if not ret:
-                print("Failed to grab frame from camera.")
-                break 
-            gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
-            faces = faceCascade.detectMultiScale(gray, 1.2, 5)
+        windo.destroy()
+        recognize_and_fill_attendance(sub)
+        
+    sub_label = Label(windo, text="Enter Subject", width=15, height=2, fg="white", bg="blue2", font=('times', 15, 'bold'))
+    sub_label.place(x=30, y=100)
 
-            for (x, y, w, h) in faces:
-                Id, conf = recognizer.predict(gray[y:y + h, x:x + w])
+    tx = Entry(windo, width=20, bg="yellow", fg="red", font=('times', 23, 'bold'))
+    tx.place(x=250, y=105)
+
+    fill_a = Button(windo, text="Fill Attendance", fg="white", command=fill_attendances, bg="deep pink",
+                    width=20, height=2, activebackground="Red", font=('times', 15, 'bold'))
+    fill_a.place(x=250, y=160)
+
+
+def recognize_and_fill_attendance(subject):
+    """
+    Recognizes faces and records attendance for the given subject.
+    """
+    recognizer = cv2.face.LBPHFaceRecognizer_create()
+    try:
+        recognizer.read("TrainingImageLabel/Trainner.yml")
+    except cv2.error:
+        messagebox.showerror("Error", "Model not found. Please train the model first.")
+        return
+
+    harcascade_path = "haarcascade_frontalface_default.xml"
+    face_cascade = cv2.CascadeClassifier(harcascade_path)
+
+    try:
+        df = pd.read_csv("StudentDetails/StudentDetails.csv")
+    except FileNotFoundError:
+        messagebox.showerror("Error", "StudentDetails.csv not found. Please register students first.")
+        return
+
+    cam = cv2.VideoCapture(0)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    col_names = ['Enrollment', 'Name', 'Date', 'Time']
+    attendance = pd.DataFrame(columns=col_names)
+    
+    # Set a timer for attendance taking
+    timeout = time.time() + 20  # 20 seconds from now
+
+    while time.time() < timeout:
+        ret, im = cam.read()
+        if not ret:
+            print("Failed to grab frame from camera.")
+            break
+        
+        gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, 1.2, 5)
+
+        for (x, y, w, h) in faces:
+            enrollment, conf = recognizer.predict(gray[y:y + h, x:x + w])
+
+            if conf < 70:  # Confidence threshold
+                student_name = df.loc[df['Enrollment'] == enrollment]['Name'].values
+                if len(student_name) > 0:
+                    name = student_name[0]
+                else:
+                    name = "Unknown"
                 
-                if (conf < 70): 
-                    print(f"Confidence: {conf}") 
-                    
-                    Subject_text = sub 
-                    
-                    current_ts_predict = time.time() 
-                    date_predict = datetime.datetime.fromtimestamp(current_ts_predict).strftime('%Y-%m-%d')
-                    timeStamp_predict = datetime.datetime.fromtimestamp(current_ts_predict).strftime('%H:%M:%S')
+                ts_predict = time.time()
+                date_predict = datetime.datetime.fromtimestamp(ts_predict).strftime('%Y-%m-%d')
+                time_predict = datetime.datetime.fromtimestamp(ts_predict).strftime('%H:%M:%S')
+                
+                tt = f"{enrollment} - {name}"
+                attendance.loc[len(attendance)] = [enrollment, name, date_predict, time_predict]
+                cv2.rectangle(im, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                cv2.putText(im, tt, (x, y - 10), font, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
+            else:
+                tt = "Unknown"
+                cv2.rectangle(im, (x, y), (x + w, y + h), (0, 0, 255), 2)
+                cv2.putText(im, tt, (x, y - 10), font, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
 
-                    aa_values = df.loc[df['Enrollment'] == Id]['Name'].values
-                    if len(aa_values) > 0:
-                        aa = aa_values[0] 
-                    else:
-                        aa = "Unknown Student" 
+        cv2.imshow('Filling Attendance...', im)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-                    tt = str(Id) + "_" + str(aa) 
-                    
-                    attendance.loc[len(attendance)] = [Id, aa, date_predict, timeStamp_predict]
-                    cv2.rectangle(im, (x, y), (x + w, y + h), (0, 255, 0), 2) 
-                    cv2.putText(im, str(tt), (x, y - 10), font, 0.8, (255, 255, 255), 2, cv2.LINE_AA) 
+    cam.release()
+    cv2.destroyAllWindows()
 
-                else: 
-                    Id = 'Unknown'
-                    tt = str(Id)
-                    cv2.rectangle(im, (x, y), (x + w, y + h), (0, 0, 255), 2) 
-                    cv2.putText(im, str(tt), (x, y - 10), font, 0.8, (0, 0, 255), 2, cv2.LINE_AA) 
+    if not attendance.empty:
+        attendance = attendance.drop_duplicates(subset=['Enrollment'], keep='first')
+        
+        # Save to CSV
+        ts_end = time.time()
+        date_end = datetime.datetime.fromtimestamp(ts_end).strftime('%Y-%m-%d')
+        time_end = datetime.datetime.fromtimestamp(ts_end).strftime('%H_%M_%S')
+        
+        attendance_dir = os.path.join(os.getcwd(), "Attendance")
+        os.makedirs(attendance_dir, exist_ok=True)
+        
+        file_name = os.path.join(attendance_dir, f"{subject}_{date_end}_{time_end}.csv")
+        attendance.to_csv(file_name, index=False)
+        
+        messagebox.showinfo("Success", "Attendance filled successfully!")
+        display_csv(file_name, f"Attendance for {subject}")
+    else:
+        messagebox.showinfo("Info", "No attendance was recorded.")
 
-            if time.time() > future: 
+
+# --- Admin Panel ---
+
+def admin_panel():
+    """
+    Creates the admin login panel.
+    """
+    win = tk.Toplevel(window)
+    win.iconbitmap('AMS.ico')
+    win.title("Admin LogIn")
+    win.geometry('880x420')
+    win.configure(background='snow')
+
+    def log_in():
+        """
+        Validates the admin credentials and displays the student details.
+        """
+        username = un_entr.get()
+        password = pw_entr.get()
+
+        if username.lower() in ('puneet', 'kshitij') and password in ('Puneet11', 'Kshitij66'):
+            win.destroy()
+            display_student_details()
+        else:
+            messagebox.showerror("Error", "Incorrect Username or Password")
+
+    un = Label(win, text="Enter Username", width=15, height=2, fg="white", bg="blue2", font=('times', 15, 'bold'))
+    un.place(x=30, y=50)
+
+    pw = Label(win, text="Enter Password", width=15, height=2, fg="white", bg="blue2", font=('times', 15, 'bold'))
+    pw.place(x=30, y=150)
+
+    un_entr = Entry(win, width=20, bg="yellow", fg="red", font=('times', 23, 'bold'))
+    un_entr.place(x=290, y=55)
+
+    pw_entr = Entry(win, width=20, show="*", bg="yellow", fg="red", font=('times', 23, 'bold'))
+    pw_entr.place(x=290, y=155)
+
+    login_button = Button(win, text="LogIn", fg="black", bg="lime green", width=20, height=2,
+                          activebackground="Red", command=log_in, font=('times', 15, 'bold'))
+    login_button.place(x=290, y=250)
+
+
+def display_student_details():
+    """
+    Displays the registered student details from the CSV file.
+    """
+    student_details_path = 'StudentDetails/StudentDetails.csv'
+    try:
+        display_csv(student_details_path, "Student Details")
+    except FileNotFoundError:
+        messagebox.showerror("Error", "StudentDetails.csv not found.")
+
+
+def display_csv(csv_path, title):
+    """
+    Displays a CSV file in a new Tkinter window.
+    """
+    root_csv_display = tk.Toplevel(window)
+    root_csv_display.title(title)
+    root_csv_display.configure(background='snow')
+
+    try:
+        with open(csv_path, newline="") as file:
+            reader = csv.reader(file)
+            for r, col in enumerate(reader):
+                for c, row in enumerate(col):
+                    label = Label(root_csv_display, width=13, height=1, fg="black", font=('times', 13, 'bold'),
+                                  bg="lawn green", text=row, relief=tk.RIDGE)
+                    label.grid(row=r, column=c)
+    except FileNotFoundError:
+        messagebox.showerror("Error", f"File not found: {csv_path}")
+        root_csv_display.destroy()
+    except Exception as e:
+        messagebox.showerror("Error", f"An error occurred while reading the file: {e}")
+        root_csv_display.destroy()
+
+# --- Image Capture and Training ---
+
+def take_img():
+    """
+    Captures and saves training images for a student.
+    """
+    enrollment = txt.get()
+    name = txt2.get()
+
+    if not enrollment or not name:
+        messagebox.showwarning("Warning", "Enrollment and Name are required.")
+        return
+
+    try:
+        cam = cv2.VideoCapture(0)
+        detector = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
+        sample_num = 0
+        
+        training_image_dir = "TrainingImage"
+        os.makedirs(training_image_dir, exist_ok=True)
+
+        while True:
+            ret, img = cam.read()
+            if not ret:
+                print("Failed to grab frame.")
                 break
             
-            attendance = attendance.drop_duplicates(subset=['Enrollment'], keep='first') 
-            cv2.imshow('Filling attendance..', im)
-            key = cv2.waitKey(1) & 0xFF 
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            faces = detector.detectMultiScale(gray, 1.3, 5)
             
-            if key == ord('q'): 
+            for (x, y, w, h) in faces:
+                cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 0), 2)
+                sample_num += 1
+                img_path = os.path.join(training_image_dir, f"{name}.{enrollment}.{sample_num}.jpg")
+                cv2.imwrite(img_path, gray[y:y + h, x:x + w])
+                cv2.imshow('Frame', img)
+
+            if cv2.waitKey(100) & 0xFF == ord('q') or sample_num >= 70:
                 break
 
         cam.release()
         cv2.destroyAllWindows()
 
-        ts_end = time.time() 
-        date_end = datetime.datetime.fromtimestamp(ts_end).strftime('%Y-%m-%d')
-        timeStamp_end = datetime.datetime.fromtimestamp(ts_end).strftime('%H_%M_%S') 
-        Hour_end, Minute_end, Second_end = timeStamp_end.split("_")
+        # Save student details to CSV
+        student_details_dir = "StudentDetails"
+        os.makedirs(student_details_dir, exist_ok=True)
         
-        if not os.path.exists("Attendance"):
-            os.makedirs("Attendance")
-
-        fileName = f"Attendance/{sub}_{date_end}_{Hour_end}-{Minute_end}-{Second_end}.csv" 
-
-        attendance = attendance.drop_duplicates(subset=['Enrollment'], keep='first') 
-        print(attendance)
-        attendance.to_csv(fileName, index=False)
+        ts = time.time()
+        date = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d')
+        time_str = datetime.datetime.fromtimestamp(ts).strftime('%H:%M:%S')
+        row = [enrollment, name, date, time_str]
         
-        date_for_DB_final = datetime.datetime.fromtimestamp(ts_end).strftime('%Y_%m_%d')
-        DB_Table_name_final = f"{sub}_{date_for_DB_final}_Time_{Hour_end}_{Minute_end}_{Second_end}"
+        with open(os.path.join(student_details_dir, 'StudentDetails.csv'), 'a+', newline='') as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(row)
+            
+        messagebox.showinfo("Success", f"Images saved for {name} ({enrollment}).")
 
-        try: 
-            connection_fill = pymysql.connect(host='localhost', user='root', password='', db='Face_reco_fill')
-            cursor_fill = connection_fill.cursor()
-        except Exception as e:
-            print(e)
-            Notification.configure(text=f"DB Connection Error: {e}", bg="Red", fg="white", width=50)
-            Notification.place(x=20, y=250)
-            return 
-
-        sql_create_table = f"""
-        CREATE TABLE IF NOT EXISTS {DB_Table_name_final} (
-            ID INT NOT NULL AUTO_INCREMENT,
-            ENROLLMENT VARCHAR(100) NOT NULL,
-            NAME VARCHAR(50) NOT NULL,
-            DATE VARCHAR(20) NOT NULL,
-            TIME VARCHAR(20) NOT NULL,
-            PRIMARY KEY (ID)
-        );
-        """
-        for index, row_df in attendance.iterrows():
-            insert_data_sql = f"INSERT INTO {DB_Table_name_final} (ID, ENROLLMENT, NAME, DATE, TIME) VALUES (0, %s, %s, %s, %s)"
-            values_to_insert = (str(row_df['Enrollment']), str(row_df['Name']), str(row_df['Date']), str(row_df['Time']))
-            try:
-                cursor_fill.execute(sql_create_table) 
-                cursor_fill.execute(insert_data_sql, values_to_insert) 
-                connection_fill.commit() 
-            except Exception as ex:
-                print(f"Error inserting row: {ex}")
-
-        M = 'Attendance filled Successfully'
-        Notification.configure(text=M, bg="Green", fg="white", width=33, font=('times', 15, 'bold'))
-        Notification.place(x=20, y=250)
-        
-        cam.release()
-        cv2.destroyAllWindows() 
-
-    try:
-        root_display_final = tk.Tk()
-        root_display_final.title("Attendance of " + sub)
-        root_display_final.configure(background='snow')
-
-        final_csv_path = fileName 
-
-        with open(final_csv_path, newline="") as file:
-            reader = csv.reader(file)
-            r = 0
-            for col in reader:
-                c = 0
-                for row in col:
-                    label = tkinter.Label(root_display_final, width=8, height=1, fg="black", font=('times', 15, 'bold'),
-                                          bg="lawn green", text=row, relief=tkinter.RIDGE)
-                    label.grid(row=r, column=c)
-                    c += 1
-                r += 1
-        root_display_final.mainloop()
-        print(attendance) 
     except Exception as e:
-        print(f"Error displaying final attendance CSV: {e}")
-        Notification.configure(text=f"Error displaying CSV: {e}", bg="Red", fg="white", width=50)
-        Notification.place(x=20, y=250)
+        messagebox.showerror("Error", f"An error occurred during image capture: {e}")
 
-    windo = tk.Tk()
-    windo.iconbitmap('AMS.ico') 
-    windo.title("Enter subject name...")
-    windo.geometry('580x320')
-    windo.configure(background='snow')
-
-    Notification_windo = tk.Label(windo, text="Attendance filled Successfully", bg="Green", fg="white", width=33,
-                                  height=2, font=('times', 15, 'bold'))
-    Notification_windo.place(x=120, y=20) 
-
-    def Attf_inner(): 
-        import subprocess
-        try:
-            folder_path = os.path.join(os.getcwd(), "Attendance")
-            subprocess.Popen(f'explorer /select,"{folder_path}"')
-        except Exception as e:
-            print(f"Error opening attendance folder: {e}")
-            Notification_windo.configure(text=f"Folder Error: {e}", bg="Red", fg="white")
-            Notification_windo.place(x=120, y=20)
-
-    attf_button_windo = tk.Button(windo, text="Check Sheets", command=Attf_inner, fg="black", bg="lawn green", width=12,
-                                  height=1, activebackground="Red", font=('times', 14, 'bold'))
-    attf_button_windo.place(x=430, y=255)
-
-    sub_label = tk.Label(windo, text="Enter Subject", width=15, height=2, fg="white", bg="blue2", font=('times', 15, 'bold'))
-    sub_label.place(x=30, y=100)
-
-    tx = tk.Entry(windo, width=20, bg="yellow", fg="red", font=('times', 23, 'bold'))
-    tx.place(x=250, y=105)
-
-    fill_a = tk.Button(windo, text="Fill Attendance", fg="white", command=Fillattendances, bg="deep pink",
-                      width=20, height=2, activebackground="Red", font=('times', 15, 'bold'))
-    fill_a.place(x=250, y=160)
-
-    windo.mainloop() 
-
-def admin_panel():
-    win = tk.Tk()
-    win.iconbitmap('AMS.ico') 
-    win.title("LogIn")
-    win.geometry('880x420')
-    win.configure(background='snow')
-
-    Nt = tk.Label(win, text="Welcome to Admin Panel", bg="Green", fg="white", width=40,
-                  height=2, font=('times', 19, 'bold'))
-    Nt.place(x=120, y=350) 
-
-    def log_in():
-        username = un_entr.get()
-        password = pw_entr.get()
-
-        if username in ('PUNEET', 'puneet', 'KSHITIJ', 'kshitij'):
-            if password in ('Puneet11', 'Kshitij66'):
-                win.destroy()
-                
-                root_student_details = tk.Tk()
-                root_student_details.title("Student Details")
-                root_student_details.configure(background='snow')
-                cs = 'StudentDetails/StudentDetails.csv'
-                try:
-                    with open(cs, newline="") as file:
-                        reader = csv.reader(file)
-                        r = 0
-                        for col in reader:
-                            c = 0
-                            for row in col:
-                                label = tkinter.Label(root_student_details, width=8, height=1, fg="black", font=('times', 15, 'bold'),
-                                                      bg="lawn green", text=row, relief=tkinter.RIDGE)
-                                label.grid(row=r, column=c)
-                                c += 1
-                            r += 1
-                    root_student_details.mainloop()
-                except FileNotFoundError:
-                    Nt.configure(text="StudentDetails.csv not found.", bg="red", fg="black")
-                    Nt.place(x=120, y=350)
-                except Exception as e:
-                    Nt.configure(text=f"Error loading student details: {e}", bg="red", fg="black")
-                    Nt.place(x=120, y=350)
-
-            else:
-                valid = 'Incorrect ID or Password'
-                Nt.configure(text=valid, bg="red", fg="black", width=38, font=('times', 19, 'bold'))
-                Nt.place(x=120, y=350)
-        else:
-            valid = 'Incorrect ID or Password'
-            Nt.configure(text=valid, bg="red", fg="black", width=38, font=('times', 19, 'bold'))
-            Nt.place(x=120, y=350)
-
-    un = tk.Label(win, text="Enter username", width=15, height=2, fg="white", bg="blue2",
-                   font=('times', 15, 'bold'))
-    un.place(x=30, y=50)
-
-    pw = tk.Label(win, text="Enter password", width=15, height=2, fg="white", bg="blue2",
-                   font=('times', 15, 'bold'))
-    pw.place(x=30, y=150)
-
-    def c00():
-        un_entr.delete(first=0, last=tk.END)
-
-    un_entr = tk.Entry(win, width=20, bg="yellow", fg="red", font=('times', 23, 'bold'))
-    un_entr.place(x=290, y=55)
-
-    def c11():
-        pw_entr.delete(first=0, last=tk.END)
-
-    pw_entr = tk.Entry(win, width=20, show="*", bg="yellow", fg="red", font=('times', 23, 'bold'))
-    pw_entr.place(x=290, y=155)
-
-    c0 = tk.Button(win, text="Clear", command=c00, fg="black", bg="deep pink", width=10, height=1,
-                   activebackground="Red", font=('times', 15, 'bold'))
-    c0.place(x=690, y=55) 
-
-    c1 = tk.Button(win, text="Clear", command=c11, fg="black", bg="deep pink", width=10, height=1,
-                   activebackground="Red", font=('times', 15, 'bold'))
-    c1.place(x=690, y=155) 
-
-    Login = tk.Button(win, text="LogIn", fg="black", bg="lime green", width=20,
-                       height=2, activebackground="Red", command=log_in, font=('times', 15, 'bold'))
-    Login.place(x=290, y=250)
-
-    win.mainloop() 
 
 def training():
-    global Notification 
-    if Notification is None: 
-        Notification = tk.Label(window, text="All things good", bg="Green", fg="white", width=50, height=3, font=('times', 17, 'bold'))
-        Notification.place(x=250, y=400) 
-
+    """
+    Trains the face recognizer with the captured images.
+    """
     recognizer = cv2.face.LBPHFaceRecognizer_create()
-    global detector
-    detector = cv2.CascadeClassifier("haarcascade_frontalface_default.xml") 
-
-    try: 
-        faces, Id = getImagesAndLabels("TrainingImage") 
-        if not faces or not Id: 
-            raise ValueError("No images found or faces detected in 'TrainingImage' folder.")
-        
-    except Exception as e:
-        l = f'Error: {e}. Please make "TrainingImage" folder & put Images, or check if faces are detectable.'
-        Notification.configure(text=l, bg="SpringGreen3", width=50, font=('times', 18, 'bold'))
-        Notification.place(x=350, y=400)
-        return 
+    detector = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")
 
     try:
-        recognizer.train(faces, np.array(Id))
+        faces, ids = get_images_and_labels("TrainingImage")
+        if not faces:
+            messagebox.showwarning("Warning", "No images found for training.")
+            return
 
-        if not os.path.exists("TrainingImageLabel"):
-            os.makedirs("TrainingImageLabel")
-        recognizer.save("TrainingImageLabel/Trainner.yml")
+        recognizer.train(faces, np.array(ids))
 
-        res = "Model Trained" 
-        Notification.configure(text=res, bg="SpringGreen3", width=50, font=('times', 18, 'bold'))
-        Notification.place(x=250, y=400)
+        training_label_dir = "TrainingImageLabel"
+        os.makedirs(training_label_dir, exist_ok=True)
+        recognizer.save(os.path.join(training_label_dir, "Trainner.yml"))
+
+        messagebox.showinfo("Success", "Model trained successfully!")
 
     except Exception as e:
-        q = f'Error during training or saving: {e}. Please make "TrainingImageLabel" folder and ensure data is valid.'
-        Notification.configure(text=q, bg="SpringGreen3", width=50, font=('times', 18, 'bold'))
-        Notification.place(x=350, y=400)
+        messagebox.showerror("Error", f"An error occurred during training: {e}")
 
-def getImagesAndLabels(path):
-    imagePaths = [os.path.join(path, f) for f in os.listdir(path) if f.endswith(('.jpg', '.png', '.jpeg'))] 
 
-    faceSamples = []
-    Ids = []
+def get_images_and_labels(path):
+    """
+    Gets the face images and corresponding labels for training.
+    """
+    image_paths = [os.path.join(path, f) for f in os.listdir(path) if f.endswith(('.jpg', '.png', '.jpeg'))]
+    face_samples = []
+    ids = []
+    detector = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")
 
-    for imagePath in imagePaths:
+    for image_path in image_paths:
         try:
-            pilImage = Image.open(imagePath).convert('L') 
-            imageNp = np.array(pilImage, 'uint8')
+            pil_image = Image.open(image_path).convert('L')  # Convert to grayscale
+            image_np = np.array(pil_image, 'uint8')
 
-            filename_parts = os.path.basename(imagePath).split('.')
+            filename_parts = os.path.basename(image_path).split('.')
             if len(filename_parts) > 1 and filename_parts[1].isdigit():
-                Id = int(filename_parts[1])
+                face_id = int(filename_parts[1])
             else:
-                print(f"Warning: Could not extract ID from filename: {imagePath}. Skipping.")
-                continue 
+                print(f"Warning: Could not extract ID from filename: {image_path}. Skipping.")
+                continue
 
-            faces_detected = detector.detectMultiScale(imageNp) 
-
+            faces_detected = detector.detectMultiScale(image_np)
             if len(faces_detected) > 0:
                 for (x, y, w, h) in faces_detected:
-                    faceSamples.append(imageNp[y:y + h, x:x + w])
-                    Ids.append(Id)
+                    face_samples.append(image_np[y:y + h, x:x + w])
+                    ids.append(face_id)
             else:
-                print(f"No face detected in {imagePath}. Skipping this image for training.")
+                print(f"No face detected in {image_path}. Skipping this image for training.")
         except Exception as e:
-            print(f"Error processing image {imagePath}: {e}")
-            continue 
+            print(f"Error processing image {image_path}: {e}")
+            continue
 
-    return faceSamples, Ids
+    return face_samples, ids
 
-window.grid_rowconfigure(0, weight=1)
-window.grid_columnconfigure(0, weight=1)
-window.iconbitmap('AMS.ico') 
+
+# --- Main Window GUI Setup ---
 
 def on_closing():
-    from tkinter import messagebox
-    if messagebox.askokcancel("Quit", "Do you want to quit?"): 
+    """
+    Confirmation dialog on closing the main window.
+    """
+    if messagebox.askokcancel("Quit", "Do you want to quit?"):
         window.destroy()
 
-window.protocol("WM_DELETE_WINDOW", on_closing) 
+window.protocol("WM_DELETE_WINDOW", on_closing)
+window.grid_rowconfigure(0, weight=1)
+window.grid_columnconfigure(0, weight=1)
 
-message = tk.Label(window, text="STUDENT ATTENDANCE MANAGEMENT SYSTEM", bg="cyan",
-                   fg="black", width=50, height=3, font=('times', 30, 'italic bold'))
+message = Label(window, text="STUDENT ATTENDANCE MANAGEMENT SYSTEM", bg="cyan",
+                fg="black", width=50, height=3, font=('times', 30, 'italic bold'))
 message.place(x=80, y=20)
 
-Notification = tk.Label(window, text="All things good", bg="Green", fg="white", width=50,
-                       height=3, font=('times', 17, 'bold'))
-Notification.place(x=250, y=400) 
+Notification = Label(window, text="All systems go!", bg="Green", fg="white", width=50,
+                     height=3, font=('times', 17, 'bold'))
+Notification.place(x=350, y=600)
 
-lbl = tk.Label(window, text="Enter Enrollment", width=20, height=2, fg="black", bg="deep pink",
-               font=('times', 15, 'bold'))
+lbl = Label(window, text="Enter Enrollment", width=20, height=2, fg="black", bg="deep pink",
+            font=('times', 15, 'bold'))
 lbl.place(x=200, y=200)
 
-def testVal(inStr, acttyp):
-    if acttyp == '1': 
-        if not inStr.isdigit():
-            return False
-        return True
-    return True 
-
-txt = tk.Entry(window, validate="key", width=20, bg="yellow", fg="red", font=('times', 25, 'bold'))
-txt['validatecommand'] = (txt.register(testVal), '%P', '%d')
+txt = Entry(window, width=20, bg="yellow", fg="red", font=('times', 25, 'bold'))
 txt.place(x=550, y=210)
 
-lbl2 = tk.Label(window, text="Enter Name", width=20, fg="black", bg="deep pink", height=2, font=('times',
-                                                                                                 15, 'bold'))
+lbl2 = Label(window, text="Enter Name", width=20, fg="black", bg="deep pink", height=2,
+             font=('times', 15, 'bold'))
 lbl2.place(x=200, y=300)
 
-txt2 = tk.Entry(window, width=20, bg="yellow", fg="red", font=('times', 25, 'bold'))
+txt2 = Entry(window, width=20, bg="yellow", fg="red", font=('times', 25, 'bold'))
 txt2.place(x=550, y=310)
 
-clearButton = tk.Button(window, text="Clear", command=clear, fg="black", bg="deep pink", width=10,
-                        height=1, activebackground="Red", font=('times', 15, 'bold'))
+clearButton = Button(window, text="Clear", command=lambda: txt.delete(0, tk.END), fg="black", bg="deep pink", width=10,
+                     height=1, activebackground="Red", font=('times', 15, 'bold'))
 clearButton.place(x=950, y=210)
 
-clearButton1 = tk.Button(window, text="Clear", command=clear1, fg="black", bg="deep pink", width=10,
-                         height=1, activebackground="Red", font=('times', 15, 'bold'))
+clearButton1 = Button(window, text="Clear", command=lambda: txt2.delete(0, tk.END), fg="black", bg="deep pink", width=10,
+                      height=1, activebackground="Red", font=('times', 15, 'bold'))
 clearButton1.place(x=950, y=310)
 
-AP = tk.Button(window, text="Check Registered students", command=admin_panel, fg="black", bg="cyan",
-               width=19, height=1, activebackground="Red", font=('times', 15, 'bold'))
-AP.place(x=990, y=410) 
+ap = Button(window, text="Check Registered Students", command=admin_panel, fg="black", bg="cyan",
+            width=20, height=2, activebackground="Red", font=('times', 15, 'bold'))
+ap.place(x=990, y=410)
 
-takeImg = tk.Button(window, text="Take Images", command=take_img, fg="white", bg="blue2", width=20,
-                    height=3, activebackground="Red", font=('times', 15, 'bold'))
-takeImg.place(x=90, y=500) 
+takeImg = Button(window, text="Take Images", command=take_img, fg="white", bg="blue2", width=20,
+                 height=3, activebackground="Red", font=('times', 15, 'bold'))
+takeImg.place(x=90, y=500)
 
-trainImg = tk.Button(window, text="Train Images", fg="black", command=training, bg="lawn green",
-                     width=20, height=3, activebackground="Red", font=('times', 15, 'bold'))
-trainImg.place(x=390, y=500) 
+trainImg = Button(window, text="Train Images", command=training, fg="black", bg="lawn green",
+                  width=20, height=3, activebackground="Red", font=('times', 15, 'bold'))
+trainImg.place(x=390, y=500)
 
-FA = tk.Button(window, text="Automatic Attendance", fg="white", command=subjectchoose, bg="blue2",
-               width=20, height=3, activebackground="Red", font=('times', 15, 'bold'))
-FA.place(x=690, y=500) 
+fa = Button(window, text="Automatic Attendance", fg="white", command=subjectchoose, bg="blue2",
+            width=20, height=3, activebackground="Red", font=('times', 15, 'bold'))
+fa.place(x=690, y=500)
 
-quitWindow = tk.Button(window, text="Manually Fill Attendance", command=manually_fill, fg="black",
-                       bg="lawn green", width=20, height=3, activebackground="Red",
-                       font=('times', 15, 'bold'))
-quitWindow.place(x=990, y=500) 
+quitWindow = Button(window, text="Manual Attendance", command=manually_fill, fg="black",
+                    bg="lawn green", width=20, height=3, activebackground="Red",
+                    font=('times', 15, 'bold'))
+quitWindow.place(x=990, y=500)
 
 window.mainloop()
